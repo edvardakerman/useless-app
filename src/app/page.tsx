@@ -11,8 +11,6 @@ export default function Home() {
   const [currentImage, setCurrentImage] = useState("/ed.jpeg"); // initial image
 
   useEffect(() => {
-  let eventSource: EventSource | null = null;
-
   const fetchCurrent = async () => {
     try {
       const res = await fetch("/api/toggle/current", { cache: "no-store" });
@@ -27,39 +25,28 @@ export default function Home() {
     }
   };
 
-  // Initial fetch
   fetchCurrent();
 
-  // Setup SSE with auto-reconnect
-  const initEventSource = () => {
-    eventSource = new EventSource("/api/toggle/stream");
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setToggle(data.value);
-        setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
-      } catch (err) {
-        console.error("Failed to parse SSE event:", err);
-      }
-    };
-
-    eventSource.onerror = () => {
-      console.warn("SSE connection lost, retrying in 3s...");
-      eventSource?.close();
-      setTimeout(initEventSource, 3000);
-    };
+  const eventSource = new EventSource("/api/toggle/stream");
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      setToggle(data.value);
+      setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  initEventSource();
-
-  // Refetch when window regains focus
-  const handleFocus = () => fetchCurrent();
-  window.addEventListener("focus", handleFocus);
+  // Refresh immediately when tab becomes visible again (works on iPhone too)
+  const handleVisibility = () => {
+    if (!document.hidden) fetchCurrent();
+  };
+  document.addEventListener("visibilitychange", handleVisibility);
 
   return () => {
-    eventSource?.close();
-    window.removeEventListener("focus", handleFocus);
+    eventSource.close();
+    document.removeEventListener("visibilitychange", handleVisibility);
   };
 }, []);
 
