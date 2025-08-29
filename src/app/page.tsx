@@ -11,41 +11,57 @@ export default function Home() {
   const [currentImage, setCurrentImage] = useState("/ed.jpeg"); // initial image
 
   useEffect(() => {
-    const fetchCurrent = async () => {
-      try {
-        const res = await fetch("/api/toggle/current", { cache: "no-store" });
-        if (!res.ok) throw new Error("Failed to fetch current toggle");
-        const data = await res.json();
-        setToggle(data.value);
-        setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  let eventSource: EventSource | null = null;
 
-    fetchCurrent();
+  const fetchCurrent = async () => {
+    try {
+      const res = await fetch("/api/toggle/current", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch current toggle");
+      const data = await res.json();
+      setToggle(data.value);
+      setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const eventSource = new EventSource("/api/toggle/stream");
+  // Initial fetch
+  fetchCurrent();
+
+  // Setup SSE with auto-reconnect
+  const initEventSource = () => {
+    eventSource = new EventSource("/api/toggle/stream");
+
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         setToggle(data.value);
         setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
       } catch (err) {
-        console.error(err);
+        console.error("Failed to parse SSE event:", err);
       }
     };
 
-    const handleFocus = () => fetchCurrent();
-    window.addEventListener("focus", handleFocus);
-
-    return () => {
-      eventSource.close();
-      window.removeEventListener("focus", handleFocus);
+    eventSource.onerror = () => {
+      console.warn("SSE connection lost, retrying in 3s...");
+      eventSource?.close();
+      setTimeout(initEventSource, 3000);
     };
-  }, []);
+  };
+
+  initEventSource();
+
+  // Refetch when window regains focus
+  const handleFocus = () => fetchCurrent();
+  window.addEventListener("focus", handleFocus);
+
+  return () => {
+    eventSource?.close();
+    window.removeEventListener("focus", handleFocus);
+  };
+}, []);
 
   const updateToggle = async (newValue: boolean) => {
     try {
