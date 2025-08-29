@@ -11,59 +11,46 @@ export default function Home() {
   const [currentImage, setCurrentImage] = useState("/ed.jpeg"); // initial image
 
   useEffect(() => {
-  let eventSource: EventSource | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // Fetch current toggle on mount
+    const fetchCurrent = async () => {
+      try {
+        const res = await fetch("/api/toggle/current", { cache: "no-store" });
+        if (!res.ok) throw new Error("Failed to fetch current toggle");
+        const data = await res.json();
+        setToggle(data.value);
+        setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const fetchCurrent = async () => {
-    try {
-      const res = await fetch("/api/toggle/current", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to fetch current toggle");
-      const data = await res.json();
-      setToggle(data.value);
-      setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    fetchCurrent();
 
-  const connect = () => {
-    if (eventSource) eventSource.close();
-    eventSource = new EventSource("/api/toggle/stream");
-
+    // Subscribe to SSE
+    const eventSource = new EventSource("/api/toggle/stream");
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         setToggle(data.value);
         setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
       } catch (err) {
-        console.error("SSE parse error:", err);
+        console.error("Failed to parse SSE event:", err);
       }
     };
 
-    eventSource.onerror = () => {
-      // quick, bounded reconnect without polling
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, 2000);
+    // Refresh toggle when tab becomes active
+    const handleFocus = () => {
+      fetchCurrent();
     };
-  };
+    window.addEventListener("focus", handleFocus);
 
-  // Initial sync + connect
-  fetchCurrent().then(connect);
-
-  // Optional: resync immediately when tab becomes visible again
-  const handleVisibility = () => {
-    if (!document.hidden) fetchCurrent();
-  };
-  document.addEventListener("visibilitychange", handleVisibility);
-
-  return () => {
-    if (eventSource) eventSource.close();
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    document.removeEventListener("visibilitychange", handleVisibility);
-  };
-}, []);
+    return () => {
+      eventSource.close();
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, []);
 
   const updateToggle = async (newValue: boolean) => {
     try {
@@ -72,11 +59,11 @@ export default function Home() {
       // start rotation
       setRotation((prev) => prev + 180);
 
-      // swap image halfway (after 350ms if total duration is 700ms)
+      // swap image halfway
       setTimeout(() => {
         setCurrentImage(newValue ? "/noami.jpeg" : "/ed.jpeg");
         setToggle(newValue);
-      }, 350); // half of duration
+      }, 350);
 
       const res = await fetch("/api/toggle/set", {
         method: "POST",
@@ -96,9 +83,7 @@ export default function Home() {
   }
 
   return (
-    <main
-      className={`flex flex-col items-center justify-center min-h-screen gap-6`}
-    >
+    <main className="flex flex-col items-center justify-center min-h-screen gap-6">
       <div className="flex flex-col items-center justify-center">
         <h1 className="text-2xl font-bold">
           Your turn {toggle ? "Noami" : "Ed"}! 🫵
@@ -112,12 +97,7 @@ export default function Home() {
           transformStyle: "preserve-3d",
         }}
       >
-        <Image
-          src={currentImage}
-          alt="img"
-          width={300}
-          height={300}
-        />
+        <Image src={currentImage} alt="img" width={300} height={300} />
       </div>
 
       <div className="flex gap-4">
