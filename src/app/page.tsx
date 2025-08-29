@@ -11,6 +11,9 @@ export default function Home() {
   const [currentImage, setCurrentImage] = useState("/ed.jpeg"); // initial image
 
   useEffect(() => {
+  let eventSource: EventSource | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
   const fetchCurrent = async () => {
     try {
       const res = await fetch("/api/toggle/current", { cache: "no-store" });
@@ -25,27 +28,39 @@ export default function Home() {
     }
   };
 
-  fetchCurrent();
+  const connect = () => {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource("/api/toggle/stream");
 
-  const eventSource = new EventSource("/api/toggle/stream");
-  eventSource.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      setToggle(data.value);
-      setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
-    } catch (err) {
-      console.error(err);
-    }
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setToggle(data.value);
+        setCurrentImage(data.value ? "/noami.jpeg" : "/ed.jpeg");
+      } catch (err) {
+        console.error("SSE parse error:", err);
+      }
+    };
+
+    eventSource.onerror = () => {
+      // quick, bounded reconnect without polling
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, 2000);
+    };
   };
 
-  // Refresh immediately when tab becomes visible again (works on iPhone too)
+  // Initial sync + connect
+  fetchCurrent().then(connect);
+
+  // Optional: resync immediately when tab becomes visible again
   const handleVisibility = () => {
     if (!document.hidden) fetchCurrent();
   };
   document.addEventListener("visibilitychange", handleVisibility);
 
   return () => {
-    eventSource.close();
+    if (eventSource) eventSource.close();
+    if (reconnectTimer) clearTimeout(reconnectTimer);
     document.removeEventListener("visibilitychange", handleVisibility);
   };
 }, []);

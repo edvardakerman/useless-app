@@ -1,36 +1,38 @@
-type Client = {
-  id: number;
-  writer: WritableStreamDefaultWriter<string>;
-};
+import { addClient, removeClient, startHeartbeat } from "./client";
 
-let clients: Client[] = [];
+// Run on the Edge for reliable streaming
+export const runtime = "edge";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req: Request) {
   const { readable, writable } = new TransformStream<string>();
   const writer = writable.getWriter();
 
-  const clientId = Date.now();
-  clients.push({ id: clientId, writer });
+  // Flush an initial comment so Safari/iOS establishes the stream immediately
+  await writer.write(`: connected\n\n`);
 
-  // Remove client on disconnect
-  req.signal.addEventListener("abort", () => {
-    clients = clients.filter(c => c.id !== clientId);
+  const id = addClient(writer);
+
+  // Keep connection alive on iOS with a tiny heartbeat from the server
+  const hb = startHeartbeat(id, () => writer);
+
+  const abort = (req as any).signal as AbortSignal | undefined;
+  const cleanup = () => {
+    clearInterval(hb);
+    removeClient(id);
     writer.close();
-  });
+  };
+  abort?.addEventListener("abort", cleanup);
 
-  // Set headers for SSE
-  const headers = new Headers({
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    "Connection": "keep-alive",
-  });
-
-  return new Response(readable, { headers });
-}
-
-// Helper to send updates to all clients
-export function sendUpdate(data: unknown) {
-  clients.forEach(client => {
-    client.writer.write(`data: ${JSON.stringify(data)}\n\n`);
+  return new Response(readable, {
+    headers: {
+      // SSE essentials:
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      // If you ever call from another origin, also add:
+      // "Access-Control-Allow-Origin": "*"
+    },
   });
 }

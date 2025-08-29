@@ -1,14 +1,16 @@
-import { sendUpdate } from "./stream/route";
+import { NextRequest, NextResponse } from "next/server";
+import { broadcast } from "./stream/client";
 
-export async function POST(req: Request) {
-  const { toggleId, value } = await req.json();
+export const runtime = "edge";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-  // Optionally, save or process toggle here
-
-  // Notify all connected clients
-  sendUpdate({ toggleId, value });
-
-  return new Response(JSON.stringify({ message: "Update sent" }), {
-    status: 200,
-  });
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json(); // expects { value: boolean, ... }
+    await broadcast({ value: body.value });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 400 });
+  }
 }
