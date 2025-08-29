@@ -8,35 +8,45 @@ export default function Home() {
   const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
-    // Fetch current toggle on mount
-    const fetchCurrent = async () => {
-      try {
-        const res = await fetch("/api/toggle/current", { cache: "no-store" });
-        if (!res.ok) throw new Error("Failed to fetch current toggle");
-        const data = await res.json();
-        setToggle(data.value);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Fetch current toggle on mount
+  const fetchCurrent = async () => {
+    try {
+      const res = await fetch("/api/toggle/current", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch current toggle");
+      const data = await res.json();
+      setToggle(data.value);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  fetchCurrent();
+
+  // Subscribe to SSE
+  const eventSource = new EventSource("/api/toggle/stream");
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      setToggle(data.value);
+    } catch (err) {
+      console.error("Failed to parse SSE event:", err);
+    }
+  };
+
+  // Refresh toggle when tab becomes active
+  const handleFocus = () => {
     fetchCurrent();
+  };
+  window.addEventListener("focus", handleFocus);
 
-    // Subscribe to SSE
-    const eventSource = new EventSource("/api/toggle/stream");
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setToggle(data.value);
-      } catch (err) {
-        console.error("Failed to parse SSE event:", err);
-      }
-    };
+  return () => {
+    eventSource.close();
+    window.removeEventListener("focus", handleFocus);
+  };
+}, []);
 
-    return () => eventSource.close();
-  }, []);
 
   const updateToggle = async (newValue: boolean) => {
     try {
